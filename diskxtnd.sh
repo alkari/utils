@@ -83,10 +83,6 @@ else
 fi
 sleep 2
 
-
-
-
-
     PART="${disk}1"
     echo "Creating physical volume on $PART..."
     pvcreate "$PART"
@@ -113,8 +109,6 @@ if [[ "$FSTYPE" == "xfs" ]]; then
     echo "Resizing XFS filesystem..."
     xfs_growfs /
 elif [[ "$FSTYPE" == "ext4" || "$FSTYPE" == "ext3" || "$FSTYPE" == "ext2" ]]; then
-    echo "Running filesystem check..."
-    e2fsck -f "/dev/$VG/$LV"
     echo "Resizing ext filesystem with resize2fs..."
     resize2fs "/dev/$VG/$LV"
 else
