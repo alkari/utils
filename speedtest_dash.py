@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 from datetime import datetime, timedelta
+import os # Import the os module for path manipulation
 
 # This script assumes the user's 'speedtest.py' is in the same directory.
 # We are importing the Speedtest class from the user-provided file.
@@ -15,6 +16,46 @@ except ImportError:
 # --- Configuration ---
 TEST_INTERVAL_MINUTES = 10
 TEST_INTERVAL_SECONDS = TEST_INTERVAL_MINUTES * 60
+
+# Define the path for the history file.
+# It will be stored in the same directory as the application.
+# The systemd service's WorkingDirectory is /opt/speedtest-dashboard,
+# so this path will resolve correctly relative to that.
+HISTORY_FILE = os.path.join(os.path.dirname(__file__), 'speedtest_history.csv')
+
+# --- Helper Functions for Persistence ---
+def load_history():
+    """
+    Loads speed test history from the HISTORY_FILE.
+    Returns a pandas DataFrame. If the file doesn't exist or is invalid,
+    returns an empty DataFrame with the correct columns.
+    """
+    if os.path.exists(HISTORY_FILE):
+        try:
+            df = pd.read_csv(HISTORY_FILE)
+            # Ensure timestamp column is datetime objects
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            st.info(f"Loaded {len(df)} previous test results from disk.")
+            return df
+        except Exception as e:
+            st.warning(f"Could not load speed test history from '{HISTORY_FILE}'. "
+                       f"Starting with empty history. Error: {e}")
+            return pd.DataFrame(columns=['timestamp', 'download', 'upload', 'ping'])
+    else:
+        st.info("No existing speed test history found. Starting fresh.")
+        return pd.DataFrame(columns=['timestamp', 'download', 'upload', 'ping'])
+
+def save_history(df):
+    """
+    Saves the current speed test history to the HISTORY_FILE.
+    """
+    try:
+        df.to_csv(HISTORY_FILE, index=False)
+        st.success("Speed test history saved to disk.")
+    except Exception as e:
+        st.error(f"Failed to save speed test history to '{HISTORY_FILE}'. Error: {e}")
+        print(f"Error saving history: {e}")
+
 
 # --- Page Setup ---
 st.set_page_config(
@@ -59,12 +100,16 @@ def run_speed_test():
 st.title("⚡ Real-Time Internet Speed Dashboard")
 st.markdown(f"This dashboard automatically tests your internet speed every **{TEST_INTERVAL_MINUTES} minutes**.")
 
-# Initialize session state
+# Initialize session state with loaded history
 if 'data' not in st.session_state:
-    st.session_state.data = pd.DataFrame(columns=['timestamp', 'download', 'upload', 'ping'])
+    st.session_state.data = load_history()
 if 'last_run' not in st.session_state:
-    # Set to a past time to ensure the first run happens immediately
-    st.session_state.last_run = datetime.min
+    # If data was loaded, set last_run to the timestamp of the latest entry
+    if not st.session_state.data.empty:
+        st.session_state.last_run = st.session_state.data['timestamp'].max()
+    else:
+        # Set to a past time to ensure the first run happens immediately
+        st.session_state.last_run = datetime.min
 
 # --- UI Layout ---
 # Placeholders for metrics and button
@@ -91,6 +136,9 @@ if time_since_last_run.total_seconds() > TEST_INTERVAL_SECONDS or is_first_run:
             st.session_state.data = new_df_row
         else:
             st.session_state.data = pd.concat([st.session_state.data, new_df_row], ignore_index=True)
+        
+        # Save history after each successful test
+        save_history(st.session_state.data)
     
     # Update the last run time regardless of success to avoid constant retries on failure
     st.session_state.last_run = datetime.now()
